@@ -1,0 +1,132 @@
+{% extends 'tracker_app/base.html' %}
+
+{% block title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="my-4">Admin Dashboard - Track Users</h1>
+    <p>Select a user to view their live location on the map.</p>
+    <div class="list-group" id="user-list">
+        <div class="list-group-item">Loading users...</div>
+    </div>
+</div>
+
+<script>
+    async function fetchUsers() {
+        const userListDiv = document.getElementById('user-list');
+        const currentUserId = {{ request.user.id|default:'null' }};
+
+        try {
+            const response = await fetch('/api/users/');
+
+            if (response.status === 403) {
+                userListDiv.innerHTML = '<div class="list-group-item text-danger">Access Denied. You must be an admin.</div>';
+                return;
+            }
+            if (!response.ok) {
+                throw new Error('Failed to load user list.');
+            }
+
+            const users = await response.json();
+            userListDiv.innerHTML = ''; 
+
+            let otherUsersFound = false;
+            users.forEach(user => {
+                if (user.id !== currentUserId) {
+                    otherUsersFound = true;
+                    
+                    const userItem = document.createElement('div');
+                    userItem.className = 'list-group-item d-flex justify-content-between align-items-center';
+
+                    const userNameSpan = document.createElement('span');
+                    userNameSpan.textContent = `User: ${user.username}`;
+                    
+                    const buttonGroup = document.createElement('div');
+
+                    const trackButton = document.createElement('a');
+                    trackButton.href = `/map/?user_id=${user.id}`;
+                    trackButton.className = 'btn btn-info btn-sm me-2';
+                    trackButton.textContent = 'View Map';
+                    
+                    const soundButton = document.createElement('button');
+                    soundButton.className = 'btn btn-warning btn-sm';
+                    soundButton.textContent = 'Play Sound';
+                    soundButton.id = `sound-btn-${user.id}`;
+                    
+                    soundButton.onclick = (event) => {
+                        const currentButton = event.target;
+                        if (currentButton.textContent === 'Play Sound') {
+                            sendCommandToUser(user.id, 'PLAY_SOUND', currentButton);
+                        } else {
+                            sendCommandToUser(user.id, 'STOP_SOUND', currentButton);
+                        }
+                    };
+
+                    buttonGroup.appendChild(trackButton);
+                    buttonGroup.appendChild(soundButton);
+                    
+                    userItem.appendChild(userNameSpan);
+                    userItem.appendChild(buttonGroup);
+                    userListDiv.appendChild(userItem);
+                }
+            });
+
+            if (!otherUsersFound) {
+                userListDiv.innerHTML = '<div class="list-group-item">No other users found to track.</div>';
+            }
+        } catch (error) {
+            console.error("Error fetching users:", error);
+            userListDiv.innerHTML = '<div class="list-group-item text-danger">An error occurred while fetching users.</div>';
+        }
+    }
+
+    // Function to send a command to the user
+    async function sendCommandToUser(userId, command, buttonElement) {
+        const csrftoken = getCookie('csrftoken');
+        try {
+            const response = await fetch('/api/send-command/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrftoken,
+                },
+                body: JSON.stringify({ user_id: userId, command: command })
+            });
+            if (response.ok) {
+                // Change the button text and color when the command is successful
+                if (command === 'PLAY_SOUND') {
+                    buttonElement.textContent = 'Stop Sound';
+                    buttonElement.classList.replace('btn-warning', 'btn-danger');
+                } else if (command === 'STOP_SOUND') {
+                    buttonElement.textContent = 'Play Sound';
+                    buttonElement.classList.replace('btn-danger', 'btn-warning');
+                }
+            } else {
+                alert('Failed to send command. The user might be offline or tracking page is not open.');
+            }
+        } catch (error) {
+            console.error('Failed to send command:', error);
+            alert('Error: Could not send command.');
+        }
+    }
+
+    // Function to get CSRF token
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // Get a list of users when the page loads
+    document.addEventListener("DOMContentLoaded", fetchUsers);
+</script>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends 'tracker_app/base.html' %}
+
+{% block title %}Welcome{% endblock %}
+
+{% block content %}
+<div class="p-5 mb-4 bg-light rounded-3 text-center">
+    <div class="container-fluid py-5">
+        <h1 class="display-5 fw-bold">Welcome to Live Location Tracker</h1>
+        <p class="fs-4">Track your devices in real-time with our simple and powerful application built with Django and Google Maps.</p>
+        {% if user.is_authenticated %}
+            <a class="btn btn-primary btn-lg" href="{% url 'map_view' %}" role="button">Go to Map</a>
+        {% else %}
+            <a class="btn btn-primary btn-lg" href="{% url 'login' %}" role="button">Login</a>
+            <a class="btn btn-secondary btn-lg" href="{% url 'register' %}" role="button">Register</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,216 @@
+{% extends 'tracker_app/base.html' %}
+
+{% block title %}Device Tracking{% endblock %}
+
+{% block content %}
+<div class="text-center p-5">
+    <div class="card mx-auto" style="max-width: 400px;">
+        
+        <!-- At first it will only appear this way. -->
+        <div id="init-view" class="card-body">
+            <h1 class="card-title">Ready to Track</h1>
+            <p class="card-text">Click the button below to allow this device to be tracked and receive sound alerts.</p>
+            <button id="initializeBtn" class="btn btn-success btn-lg">Activate Tracking</button>
+            <div id="init-error" class="text-danger mt-3"></div>
+        </div>
+
+        <!-- This will appear when tracking starts. -->
+        <div id="tracking-view" class="card-body" style="display: none;">
+            <h1 class="card-title">Tracking Active</h1>
+            <p class="card-text">Your location is being shared. Keep this page open.</p>
+            
+            <button id="stopTrackingBtn" class="btn btn-danger btn-lg">Stop Tracking</button>
+
+            <div id="status" class="mt-3 text-muted">
+                <div id="status-message">Status: Initializing...</div>
+                <div id="alarm-message" class="text-danger fw-bold mt-2"></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- आवाजासाठी ऑडिओ एलिमेंट -->
+<audio id="alertSound" src="https://www.soundjay.com/buttons/sounds/beep-07a.mp3" loop></audio>
+
+<script>
+    // HTML Elements
+    const initializeBtn = document.getElementById('initializeBtn');
+    const stopTrackingBtn = document.getElementById('stopTrackingBtn');
+    const statusMessageDiv = document.getElementById('status-message');
+    const alarmMessageDiv = document.getElementById('alarm-message');
+    const initErrorDiv = document.getElementById('init-error');
+    const initView = document.getElementById('init-view');
+    const trackingView = document.getElementById('tracking-view');
+    const alertSound = document.getElementById('alertSound');
+
+    // State Variables
+    let watchId = null;
+    let socket = null;
+
+    // WebSocket Logic
+    function setupWebSocket() {
+        // If a WebSocket is already connected or is connecting, do not create a new one.
+        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+            return;
+        }
+
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+        const wsPath = `${wsProtocol}${window.location.host}/ws/location_updates/`;
+        socket = new WebSocket(wsPath);
+
+        socket.onopen = () => console.log("WebSocket connection for commands established!");
+
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'command') {
+                if (data.command === 'PLAY_SOUND') {
+                    console.log('Play sound command received!');
+                    playSound();
+                } else if (data.command === 'STOP_SOUND') {
+                    console.log('Stop sound command received!');
+                    stopSound();
+                }
+            }
+        };
+
+        socket.onclose = () => {
+            console.error('WebSocket connection closed. Trying to reconnect in 5 seconds...');
+            setTimeout(setupWebSocket, 5000);
+        };
+        
+        socket.onerror = (err) => console.error('WebSocket error:', err);
+    }
+
+    // Helper Function for CSRF
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // Geolocation and API Functions
+    async function sendLocation(position) {
+        const { latitude, longitude, accuracy } = position.coords;
+        const now = new Date();
+        let batteryLevel = null;
+        let batteryStatus = 'N/A';
+        
+        if ('getBattery' in navigator) {
+            try {
+                const battery = await navigator.getBattery();
+                batteryLevel = Math.round(battery.level * 100);
+                batteryStatus = `${batteryLevel}% ${battery.charging ? '(Charging)' : ''}`;
+            } catch (err) { /* Ignore battery error */ }
+        }
+
+        statusMessageDiv.innerHTML = `<strong>Status:</strong> Active<br>
+                                   <strong>Last Update:</strong> ${now.toLocaleTimeString()}<br>
+                                   Lat: ${latitude.toFixed(6)}, Long: ${longitude.toFixed(6)}<br>
+                                   <strong>Accuracy:</strong> ${accuracy.toFixed(0)} meters<br>
+                                   <strong>Battery:</strong> ${batteryStatus}`;
+
+        fetch('/api/locations/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+            body: JSON.stringify({ latitude, longitude, battery_level: batteryLevel })
+        }).catch(error => console.error('Error sending location:', error));
+    }
+
+    function handleLocationError(error) {
+        let msg;
+        switch(error.code) {
+            case 1: msg = "Permission Denied. Please enable location for this site in your browser settings."; break;
+            case 2: msg = "Position Unavailable. Make sure your device's GPS is on."; break;
+            case 3: msg = "Request Timed Out."; break;
+            default: msg = "An unknown error occurred.";
+        }
+        initErrorDiv.textContent = msg;
+        stopTracking();
+    }
+
+    // Sound Functions
+    function playSound() {
+        if (alertSound.paused) {
+            const playPromise = alertSound.play();
+            if (playPromise !== undefined) {
+                playPromise.then(_ => {
+                    // Autoplay started!
+                    alarmMessageDiv.textContent = 'Alarm is playing!';
+                    stopTrackingBtn.textContent = 'Silence Alarm';
+                }).catch(error => {
+                    // Autoplay was prevented.
+                    console.error("Audio play failed:", error);
+                    alarmMessageDiv.textContent = "Could not play sound automatically.";
+                });
+            }
+        }
+    }
+
+    function stopSound() {
+        if (!alertSound.paused) {
+            alertSound.pause();
+            alertSound.currentTime = 0;
+        }
+        alarmMessageDiv.textContent = '';
+        if (watchId) {
+            stopTrackingBtn.textContent = 'Stop Tracking';
+        }
+    }
+
+    // Main Tracking Control
+    function startTracking() {
+        if (watchId) return; // Already tracking
+        if (navigator.geolocation) {
+            const geoOptions = { enableHighAccuracy: true };
+            statusMessageDiv.innerHTML = '<strong>Status:</strong> Waiting for location update...';
+            watchId = navigator.geolocation.watchPosition(sendLocation, handleLocationError, geoOptions);
+            
+            initView.style.display = 'none';
+            trackingView.style.display = 'block';
+        } else {
+            alert("Geolocation is not supported by this browser.");
+        }
+    }
+
+    function stopTracking() {
+        if (watchId) {
+            navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+        }
+        stopSound();
+        initView.style.display = 'block';
+        trackingView.style.display = 'none';
+    }
+
+    // Event Listeners
+    initializeBtn.addEventListener('click', () => {
+        // Load audio on user click and then start tracking
+        alertSound.load();
+        startTracking();
+    });
+
+    stopTrackingBtn.addEventListener('click', () => {
+        // If the sound is playing, just turn off the sound.
+        if (!alertSound.paused) {
+            stopSound();
+        } else {
+            // Otherwise, turn off tracking.
+            stopTracking();
+        }
+    });
+    
+    // Page load initializer
+    document.addEventListener("DOMContentLoaded", setupWebSocket);
+
+</script>
+{% endblock %}

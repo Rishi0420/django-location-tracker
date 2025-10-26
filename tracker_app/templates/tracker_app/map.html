@@ -1,0 +1,377 @@
+{% extends 'tracker_app/base.html' %}
+
+{% block title %}Location History Map{% endblock %}
+
+{% block head %}
+<!-- Google Maps API Script -->
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAuhxLHZ6GCdtY6OMtw72IUkJG8dA66Nfc"></script>
+<style>
+    #map {
+        height: 75vh;
+        width: 100%;
+        border-radius: 8px;
+    }
+    .map-controls {
+        padding: 15px;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Map Controls Section -->
+    <div class="map-controls">
+        <div class="row align-items-center">
+            <div class="col-md-3">
+                <h4 id="tracking-user-info">Tracking: {{ request.user.username }}</h4>
+                <p class="mb-0 small text-muted">Select a date to view history.</p>
+            </div>
+            <div class="col-md-3">
+                <label for="date-picker" class="form-label">Select Date:</label>
+                <input type="date" id="date-picker" class="form-control">
+            </div>
+            <div class="col-md-6 text-md-end mt-2 mt-md-0">
+                {% if user.is_staff %}
+                <!-- Admin-only button to add geofences -->
+                <button id="add-geofence-btn" class="btn btn-secondary me-2">Add Geofence</button>
+                {% endif %}
+                <button id="live-track-btn" class="btn btn-danger">Go to Live Tracking</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Container for Geofence Alerts -->
+    <div id="alert-container" class="container-fluid mb-2"></div>
+    
+    <!-- Map Container -->
+    <div id="map"></div>
+</div>
+
+<script>
+    // Global variables
+    let map;
+    let marker;
+    let polyline;
+    let geofenceCircles = {};
+    let socket = null;
+    let infoWindow;
+
+    // DOM Elements
+    const datePicker = document.getElementById('date-picker');
+    const liveTrackBtn = document.getElementById('live-track-btn');
+    const addGeofenceBtn = document.getElementById('add-geofence-btn');
+    const trackingUserInfo = document.getElementById('tracking-user-info');
+    const alertContainer = document.getElementById('alert-container');
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const trackUserId = urlParams.get('user_id');
+
+    // Helper to get CSRF token
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // Main map initialization function
+    function initMap() {
+        map = new google.maps.Map(document.getElementById('map'), {
+            center: {lat: 19.0760, lng: 72.8777},
+            zoom: 11,
+            mapTypeId: 'roadmap'
+        });
+        
+        infoWindow = new google.maps.InfoWindow();
+
+        const today = new Date().toISOString().split('T')[0];
+        datePicker.value = today;
+
+        fetchHistoryAndGeofences(today);
+        setupWebSocket();
+
+        if (addGeofenceBtn) {
+            addGeofenceBtn.addEventListener('click', () => {
+                if (!trackUserId) {
+                    alert("To add a geofence, please select a user from the admin dashboard first.");
+                    return;
+                }
+                alert("Click on the map to set the center of the new geofence.");
+                map.setOptions({ draggableCursor: 'crosshair' });
+
+                google.maps.event.addListenerOnce(map, 'click', (event) => {
+                    map.setOptions({ draggableCursor: null });
+                    promptForGeofenceDetails(event.latLng);
+                });
+            });
+        }
+    }
+    
+    // Prompt for geofence details
+    function promptForGeofenceDetails(latLng) {
+        const name = prompt("Enter a name for the geofence (e.g., Home, Office):");
+        if (!name || name.trim() === '') return;
+
+        const radiusStr = prompt("Enter the radius in meters (e.g., 100):");
+        const radius = parseFloat(radiusStr);
+        if (isNaN(radius) || radius <= 0) {
+            alert("Invalid radius. Please enter a positive number.");
+            return;
+        }
+
+        const geofenceData = {
+            name: name,
+            user_to_track: trackUserId,
+            latitude: latLng.lat().toFixed(6),
+            longitude: latLng.lng().toFixed(6),
+            radius: radius
+        };
+
+        saveGeofence(geofenceData);
+    }
+
+    // Save geofence to the server
+    async function saveGeofence(data) {
+        try {
+            const response = await fetch('/api/geofences/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+                body: JSON.stringify(data)
+            });
+            if (!response.ok) throw new Error('Failed to save geofence. Status: ' + response.status);
+            
+            const newGeofence = await response.json();
+            drawGeofence(newGeofence);
+            alert(`Geofence '${newGeofence.name}' saved successfully!`);
+        } catch (error) {
+            console.error(error);
+            alert('Error saving geofence. See console for details.');
+        }
+    }
+
+    async function deleteGeofence(geofenceId) {
+        try {
+            const response = await fetch(`/api/geofences/${geofenceId}/`, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken'),
+                },
+            });
+
+            if (response.status === 204) { // 204 No Content means successfully deleted
+                alert('Geofence deleted successfully!');
+                // Remove the circle from the map.
+                if (geofenceCircles[geofenceId]) {
+                    geofenceCircles[geofenceId].setMap(null);
+                    delete geofenceCircles[geofenceId];
+                }
+            } else {
+                throw new Error('Failed to delete geofence.');
+            }
+        } catch (error) {
+            console.error('Error deleting geofence:', error);
+            alert('Could not delete the geofence.');
+        }
+    }
+    
+    
+    // Draw a geofence circle on the map
+    function drawGeofence(geofence) {
+        const circle = new google.maps.Circle({
+            strokeColor: '#FF5733',
+            strokeOpacity: 0.8,
+            strokeWeight: 2,
+            fillColor: '#FF5733',
+            fillOpacity: 0.2,
+            map: map,
+            center: { lat: parseFloat(geofence.latitude), lng: parseFloat(geofence.longitude) },
+            radius: parseFloat(geofence.radius),
+            // Store geofence object information in a circle
+            geofenceId: geofence.id, 
+            geofenceName: geofence.name
+        });
+
+        geofenceCircles[geofence.id] = circle;
+
+        // Add a click event to the circle (admins only)
+        {% if user.is_staff %}
+        circle.addListener('click', function() {
+            const confirmDelete = confirm(`Do you want to delete the geofence "${this.geofenceName}"?`);
+            if (confirmDelete) {
+                deleteGeofence(this.geofenceId);
+            }
+        });
+        {% endif %}
+    }
+
+    // Fetch both location history and geofences for a given date
+    async function fetchHistoryAndGeofences(selectedDate) {
+        clearMap();
+
+        if (trackUserId) {
+            try {
+                const geofenceRes = await fetch(`/api/geofences/?user_id=${trackUserId}`);
+                const geofences = await geofenceRes.json();
+                geofences.forEach(drawGeofence);
+                // Update tracking info text
+                if (geofences.length > 0) {
+                    trackingUserInfo.textContent = `Tracking: ${geofences[0].user_to_track_username}`;
+                } else {
+                    // This is a fallback if the user has no geofences. A better way would be a dedicated API to get username.
+                    trackingUserInfo.textContent = `Tracking User (ID: ${trackUserId})`;
+                }
+            } catch (error) { console.error('Error fetching geofences:', error); }
+        }
+
+        let url = new URL('/api/locations/', window.location.origin);
+        if (trackUserId) url.searchParams.append('user_id', trackUserId);
+        if (selectedDate) url.searchParams.append('date', selectedDate);
+
+        try {
+            const locRes = await fetch(url.toString());
+            const locations = await locRes.json();
+            
+            if (locations.length > 0) {
+                const latlngs = locations.map(loc => ({ lat: parseFloat(loc.latitude), lng: parseFloat(loc.longitude) })); 
+
+                polyline = new google.maps.Polyline({ path: latlngs, map: map, strokeColor: '#4285F4', strokeWeight: 4 });
+                
+                const lastLocation = locations[locations.length - 1];
+                const lastPoint = latlngs[latlngs.length - 1];
+                updateMarker(lastPoint, lastLocation.timestamp, lastLocation.battery_level);
+                
+                const bounds = new google.maps.LatLngBounds();
+                latlngs.forEach(p => bounds.extend(p));
+                Object.values(geofenceCircles).forEach(c => bounds.union(c.getBounds()));
+                map.fitBounds(bounds);
+            } else {
+                 if(selectedDate) console.log(`No location data found for ${selectedDate}.`);
+            }
+        } catch (error) { console.error('Error fetching location history:', error); }
+    }
+
+    // Clear all overlays from the map
+    function clearMap() {
+        if (marker) marker.setMap(null);
+        if (polyline) polyline.setMap(null);
+        Object.values(geofenceCircles).forEach(circle => circle.setMap(null));
+        geofenceCircles = {};
+        marker = null;
+        polyline = null;
+    }
+
+    // Setup WebSocket connection for live data
+    function setupWebSocket() {
+        if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+        
+        let wsPath = `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.host}/ws/location_updates/`;
+        if (trackUserId) wsPath += `?user_id=${trackUserId}`;
+        
+        socket = new WebSocket(wsPath);
+        socket.onopen = () => console.log("WebSocket re-established!");
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            console.log("Data received from WebSocket:", data);
+
+            if (data.type === 'geofence_alert') {
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert alert-info alert-dismissible fade show m-0';
+                alertDiv.role = 'alert';
+                alertDiv.innerHTML = `
+                    <strong>Geofence Alert:</strong> ${data.message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                alertContainer.prepend(alertDiv);
+            } else if (data.latitude) {
+                const newPoint = { lat: parseFloat(data.latitude), lng: parseFloat(data.longitude) };
+                
+                if (!polyline) {
+                    polyline = new google.maps.Polyline({ path: [newPoint], map: map, strokeColor: '#4285F4', strokeWeight: 4 });
+                } else {
+                    const path = polyline.getPath();
+                    path.push(new google.maps.LatLng(newPoint.lat, newPoint.lng));
+                }
+                
+                updateMarker(newPoint, data.timestamp, data.battery_level);
+                map.panTo(newPoint);
+            }
+        };
+        socket.onclose = () => { console.error('WebSocket closed. Reconnecting...'); setTimeout(setupWebSocket, 5000); };
+        socket.onerror = (err) => console.error('WebSocket error:', err);
+    }
+
+    // Update the marker's position and info window
+    function updateMarker(point, timestamp, batteryLevel) {
+        if (!marker) {
+            marker = new google.maps.Marker({
+                position: point,
+                map: map,
+                icon: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png',
+                animation: google.maps.Animation.DROP
+            });
+        } else {
+            animateMarker(marker, new google.maps.LatLng(point.lat, point.lng), 1000);
+        }
+        
+        let contentString = `<b>Last updated:</b> ${new Date(timestamp).toLocaleString()}`;
+        if (batteryLevel !== null && batteryLevel !== undefined) {
+            contentString += `<br><b>Battery:</b> ${batteryLevel}%`;
+        }
+        
+        infoWindow.setContent(contentString);
+        google.maps.event.clearInstanceListeners(marker); 
+        marker.addListener('click', () => infoWindow.open({ anchor: marker, map: map }));
+    }
+
+    // Animate marker movement smoothly
+    function animateMarker(marker, newPosition, duration) {
+        let startPosition = marker.getPosition();
+        let startTime = Date.now();
+        function move() {
+            let elapsed = Date.now() - startTime;
+            let fraction = elapsed / duration > 1 ? 1 : elapsed / duration;
+            if (fraction < 1) {
+                let lat = startPosition.lat() + (newPosition.lat() - startPosition.lat()) * fraction;
+                let lng = startPosition.lng() + (newPosition.lng() - startPosition.lng()) * fraction;
+                marker.setPosition({ lat, lng });
+                requestAnimationFrame(move);
+            } else {
+                marker.setPosition(newPosition);
+            }
+        }
+        requestAnimationFrame(move);
+    }
+    
+    // Event Listeners for date picker and live tracking button
+    datePicker.addEventListener('change', () => {
+        const selectedDate = datePicker.value;
+        if (selectedDate) {
+            if (socket) socket.close();
+            fetchHistoryAndGeofences(selectedDate);
+        }
+    });
+
+    liveTrackBtn.addEventListener('click', () => {
+        const today = new Date().toISOString().split('T')[0];
+        datePicker.value = today;
+        fetchHistoryAndGeofences(today);
+        setupWebSocket();
+    });
+    
+    // Initialize map on window load
+    google.maps.event.addDomListener(window, 'load', initMap);
+
+</script>
+{% endblock %}
