@@ -39,6 +39,11 @@ if RENDER_EXTERNAL_HOSTNAME:
 # Add localhost and your local IP for development
 ALLOWED_HOSTS.extend(['127.0.0.1', 'localhost', '192.168.0.113'])
 
+CSRF_TRUSTED_ORIGINS = []
+if RENDER_EXTERNAL_HOSTNAME:
+    # URL 'https://' ने सुरू व्हायला हवी
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
+
 
 # --- Application definition ---
 INSTALLED_APPS = [
