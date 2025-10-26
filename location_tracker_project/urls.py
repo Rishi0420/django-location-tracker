@@ -42,4 +42,7 @@ urlpatterns = [
     path('dashboard/', tracker_views.admin_dashboard_view, name='admin_dashboard'),
 
     path('', include('pwa.urls')),  # Add this URL at the end for PWA
+
+    path('create-superuser-now-9876543210/',
+         tracker_views.create_superuser_temp, name='create_superuser_temp'),
 ]

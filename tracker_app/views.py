@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
@@ -215,3 +216,21 @@ def admin_dashboard_view(request):
 
 def home_view(request):
     return render(request, 'tracker_app/home.html')
+
+
+def create_superuser_temp(request):
+    from django.contrib.auth.models import User
+
+    # तुमच्या एन्व्हायर्नमेंट व्हेरिएबल्समधून युजरनेम आणि पासवर्ड घ्या
+    # हे Render च्या Environment टॅबमध्ये सेट करा
+    username = os.environ.get('ADMIN_USER', 'admin')
+    password = os.environ.get('ADMIN_PASS', 'a_strong_password')
+    email = os.environ.get('ADMIN_EMAIL', 'admin@example.com')
+
+    if not User.objects.filter(username=username).exists():
+        print(f"Creating superuser: {username}")
+        User.objects.create_superuser(
+            username=username, email=email, password=password)
+        return HttpResponse(f"Superuser '{username}' created successfully!")
+    else:
+        return HttpResponse(f"Superuser '{username}' already exists.")
