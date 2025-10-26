@@ -94,8 +94,8 @@ WSGI_APPLICATION = 'location_tracker_project.wsgi.application'
 ASGI_APPLICATION = 'location_tracker_project.asgi.application'
 
 CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer'
     }
 }
 
