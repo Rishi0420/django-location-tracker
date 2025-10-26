@@ -12,9 +12,9 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 Django settings for location_tracker_project project.
 """
+import os
 from pathlib import Path
 import dj_database_url
-import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -83,7 +83,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                # API की साठी context processor
+                # Context processor for API keys
                 'tracker_app.context_processors.google_maps_api_key',
             ],
         },
@@ -126,9 +126,8 @@ USE_TZ = True
 # --- Static files (CSS, JavaScript, Images) ---
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
-# Production मध्ये collectstatic साठी
+# For collectstatic in Production
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 
 # Default primary key field type
@@ -164,6 +163,5 @@ PWA_APP_ICONS = [
 ]
 
 # --- Custom Settings ---
-# Google Maps API की येथे टाका
 GOOGLE_MAPS_API_KEY = os.environ.get(
     'GOOGLE_MAPS_API_KEY', 'AIzaSyAuhxLHZ6GCdtY6OMtw72IUkJG8dA66Nfc')
