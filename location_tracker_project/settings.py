@@ -162,9 +162,24 @@ PWA_APP_BACKGROUND_COLOR = '#ffffff'
 PWA_APP_DISPLAY = 'standalone'
 PWA_APP_SCOPE = '/'
 PWA_APP_START_URL = '/'
+
+# --- IMPORTANT CHANGE HERE ---
+# Only list the icons that you have actually created in your static/images folder.
 PWA_APP_ICONS = [
-    {'src': '/static/images/icon-192x192.png', 'sizes': '192x192'},
-    {'src': '/static/images/icon-512x512.png', 'sizes': '512x512'}
+    {
+        'src': '/static/images/icon-192x192.png',
+        'sizes': '192x192'
+    },
+    {
+        'src': '/static/images/icon-512x512.png',
+        'sizes': '512x512'
+    }
+]
+PWA_APP_ICONS_APPLE = [
+    {
+        'src': '/static/images/icon-192x192.png',
+        'sizes': '192x192'
+    }
 ]
 
 # --- Custom Settings ---
