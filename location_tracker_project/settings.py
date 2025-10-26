@@ -9,37 +9,50 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-
+"""
+Django settings for location_tracker_project project.
+"""
 from pathlib import Path
+import dj_database_url
 import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# --- Deployment Settings ---
+# SECRET_KEY, DEBUG, ALLOWED_HOSTS will be configured for both development and production (Render)
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+# Get the secret key from environment variables. For development, a default key is used.
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY', 'django-insecure-your-default-dev-key')
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-etcv3q08%5t=dmenp8641tz@!hg_lr67c-9i3fd23g8ju$-p-@'
+# DEBUG will be True in development and False on Render
+DEBUG = 'RENDER' not in os.environ
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+ALLOWED_HOSTS = []
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '192.168.0.113']
+# If on Render, add the Render hostname to ALLOWED_HOSTS
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+
+# Add localhost and your local IP for development
+ALLOWED_HOSTS.extend(['127.0.0.1', 'localhost', '192.168.0.113'])
 
 
-# Application definition
-
+# --- Application definition ---
 INSTALLED_APPS = [
+    'daphne',  # Must be first for ASGI server
     'channels',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
+    # For serving static files in development with runserver
+    'whitenoise.runserver_nostatic',
     'django.contrib.staticfiles',
-    'rest_framework',  # For DRF
+    'rest_framework',
     'rest_framework.authtoken',
     'tracker_app',
     'pwa',
@@ -47,6 +60,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Place it right after SecurityMiddleware
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -64,90 +79,20 @@ TEMPLATES = [
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                # API की साठी context processor
+                'tracker_app.context_processors.google_maps_api_key',
             ],
         },
     },
 ]
 
+# --- ASGI/WSGI and Channel Layer ---
 WSGI_APPLICATION = 'location_tracker_project.wsgi.application'
 ASGI_APPLICATION = 'location_tracker_project.asgi.application'
-
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
-
-
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
-
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
-]
-
-
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
-
-LANGUAGE_CODE = 'en-us'
-
-TIME_ZONE = 'UTC'
-
-USE_I18N = True
-
-USE_TZ = True
-
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
-
-STATIC_URL = 'static/'
-
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),
-]
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
-
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
-    ],
-    'DEFAULT_PERMISSION_CLASSES': [
-        # By default, all APIs will require authentication.
-        'rest_framework.permissions.IsAuthenticated',
-    ]
-}
-
-
-LOGIN_REDIRECT_URL = '/map/'  # Once logged in, go to this URL
-LOGOUT_REDIRECT_URL = '/login/'  # Go to this URL after logging out.
-# Use @login_required to go to this URL without being logged in.
-LOGIN_URL = '/login/'
 
 CHANNEL_LAYERS = {
     "default": {
@@ -155,21 +100,70 @@ CHANNEL_LAYERS = {
     }
 }
 
-# PWA Settings
+# --- Database ---
+# Uses PostgreSQL on Render and SQLite locally
+DATABASES = {
+    'default': dj_database_url.config(
+        default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
+        conn_max_age=600
+    )
+}
+
+# --- Password validation ---
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
+
+# --- Internationalization ---
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE = 'UTC'
+USE_I18N = True
+USE_TZ = True
+
+# --- Static files (CSS, JavaScript, Images) ---
+STATIC_URL = 'static/'
+STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+# Production मध्ये collectstatic साठी
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+
+# Default primary key field type
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# --- DRF Settings ---
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ]
+}
+
+# --- Auth URLs ---
+LOGIN_REDIRECT_URL = '/map/'
+LOGOUT_REDIRECT_URL = '/'
+LOGIN_URL = '/login/'
+
+# --- PWA Settings ---
 PWA_APP_NAME = 'Location Tracker'
 PWA_APP_DESCRIPTION = "A simple real-time location tracker"
-PWA_APP_THEME_COLOR = '#343a40'  # The color of navbar
+PWA_APP_THEME_COLOR = '#343a40'
 PWA_APP_BACKGROUND_COLOR = '#ffffff'
 PWA_APP_DISPLAY = 'standalone'
 PWA_APP_SCOPE = '/'
-PWA_APP_START_URL = '/'  # What page will appear when you open the app?
+PWA_APP_START_URL = '/'
 PWA_APP_ICONS = [
-    {
-        'src': '/static/images/icon-192x192.png',
-        'sizes': '192x192'
-    },
-    {
-        'src': '/static/images/icon-512x512.png',
-        'sizes': '512x512'
-    }
+    {'src': '/static/images/icon-192x192.png', 'sizes': '192x192'},
+    {'src': '/static/images/icon-512x512.png', 'sizes': '512x512'}
 ]
+
+# --- Custom Settings ---
+# Google Maps API की येथे टाका
+GOOGLE_MAPS_API_KEY = os.environ.get(
+    'GOOGLE_MAPS_API_KEY', 'AIzaSyAuhxLHZ6GCdtY6OMtw72IUkJG8dA66Nfc')
