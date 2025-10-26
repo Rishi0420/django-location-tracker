@@ -12,21 +12,20 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 Django settings for location_tracker_project project.
 """
-import os
 from pathlib import Path
 import dj_database_url
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- Deployment Settings ---
-# SECRET_KEY, DEBUG, ALLOWED_HOSTS will be configured for both development and production (Render)
-
-# Get the secret key from environment variables. For development, a default key is used.
+# SECRET_KEY is read from environment variable in production.
+# Use a default key for local development only.
 SECRET_KEY = os.environ.get(
-    'SECRET_KEY', 'django-insecure-your-default-dev-key')
+    'SECRET_KEY', 'django-insecure-change-this-default-key-later')
 
-# DEBUG will be True in development and False on Render
+# DEBUG will be True locally and False on Render
 DEBUG = 'RENDER' not in os.environ
 
 ALLOWED_HOSTS = []
@@ -36,26 +35,23 @@ RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
-# Add localhost and your local IP for development
+# Add local hosts for development
 ALLOWED_HOSTS.extend(['127.0.0.1', 'localhost', '192.168.0.113'])
 
+# CSRF settings for production
 CSRF_TRUSTED_ORIGINS = []
 if RENDER_EXTERNAL_HOSTNAME:
-    # URL 'https://' ने सुरू व्हायला हवी
     CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
-
 
 # --- Application definition ---
 INSTALLED_APPS = [
-    'daphne',  # Must be first for ASGI server
+    'daphne',
     'channels',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    # For serving static files in development with runserver
-    'whitenoise.runserver_nostatic',
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework.authtoken',
@@ -65,8 +61,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    # Place it right after SecurityMiddleware
-    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Correct placement
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -88,7 +83,6 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                # Context processor for API keys
                 'tracker_app.context_processors.google_maps_api_key',
             ],
         },
@@ -106,11 +100,11 @@ CHANNEL_LAYERS = {
 }
 
 # --- Database ---
-# Uses PostgreSQL on Render and SQLite locally
 DATABASES = {
     'default': dj_database_url.config(
         default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
-        conn_max_age=600
+        conn_max_age=600,
+        conn_health_checks=True,
     )
 }
 
@@ -131,11 +125,13 @@ USE_TZ = True
 # --- Static files (CSS, JavaScript, Images) ---
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
-# For collectstatic in Production
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
+# *** CRITICAL FIX FOR PRODUCTION ***
+# This makes sure whitenoise can serve files correctly when DEBUG=False
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Default primary key field type
+# --- Default primary key field type ---
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # --- DRF Settings ---
@@ -163,25 +159,16 @@ PWA_APP_DISPLAY = 'standalone'
 PWA_APP_SCOPE = '/'
 PWA_APP_START_URL = '/'
 
-# --- IMPORTANT CHANGE HERE ---
-# Only list the icons that you have actually created in your static/images folder.
 PWA_APP_ICONS = [
-    {
-        'src': '/static/images/icon-192x192.png',
-        'sizes': '192x192'
-    },
-    {
-        'src': '/static/images/icon-512x512.png',
-        'sizes': '512x512'
-    }
+    {'src': '/static/images/icon-192x192.png', 'sizes': '192x192'},
+    {'src': '/static/images/icon-512x512.png', 'sizes': '512x512'}
 ]
 PWA_APP_ICONS_APPLE = [
-    {
-        'src': '/static/images/icon-192x192.png',
-        'sizes': '192x192'
-    }
+    {'src': '/static/images/icon-192x192.png', 'sizes': '192x192'}
 ]
 
 # --- Custom Settings ---
+# Google Maps API Key is read from environment variable in production.
+# Use your local key for development.
 GOOGLE_MAPS_API_KEY = os.environ.get(
     'GOOGLE_MAPS_API_KEY', 'AIzaSyAuhxLHZ6GCdtY6OMtw72IUkJG8dA66Nfc')

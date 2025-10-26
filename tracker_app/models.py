@@ -115,7 +115,8 @@ def check_geofence_and_notify(sender, instance, created, **kwargs):
 
         # Send notifications to admin via WebSocket
         admin_user = current_geofence.created_by if current_geofence else user_status.last_known_geofence.created_by
-        admin_group_name = f'user_{admin_user.id}'
+        if admin_user:  # <--- Add this check
+            admin_group_name = f'user_{admin_user.id}'
 
         # For debugging
         print(f"Sending geofence alert to {admin_group_name}: {message}")
