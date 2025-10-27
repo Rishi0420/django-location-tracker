@@ -2,10 +2,9 @@
 
 A full-stack, real-time GPS tracking web application built with Django, Django Channels, and Google Maps API. This application allows users to track their devices in real-time, view historical location data, and set up geofences for alerts.
 
-**Live Demo:** [https://rishi-locations-tracker.onrender.com/](https://rishi-locations-tracker.onrender.com/)
+**Live Link:** [https://rishi-locations-tracker.onrender.com/](https://rishi-locations-tracker.onrender.com/)
 
-![Location Tracker Demo](./static/images/demo.gif) 
-*(Note: You can create a small GIF of your application working and add it here. Name it `demo.gif` and place it in the `static/images/` folder.)*
+![Location_Tracker_5](./static/images/demo.gif) 
 
 ---
 
@@ -114,3 +113,4 @@ Follow these instructions to set up and run the project on your local machine.
 ---
 
 Thank you for checking out this project!
+
